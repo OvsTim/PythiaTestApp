@@ -1,0 +1,9 @@
+{
+  "iconSets": [
+    {
+      "inputDir": "./src/assets/svg",
+      "fontFamily": "chat",
+      "outputDir": "./src/assets/nanoicons"
+    }
+  ]
+}

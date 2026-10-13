@@ -79,3 +79,10 @@ yarn-error.log
 
 # Local assignment materials (brief + mock server) — never push
 docs/
+
+# Native-linked font copies (regenerate: npm run assets)
+# Sources of truth: src/assets/fonts/*.ttf and src/assets/svg/ (+ generated src/assets/nanoicons/)
+android/app/src/main/assets/fonts/
+android/link-assets-manifest.json
+ios/link-assets-manifest.json
+ios/nanoicons-fonts/

@@ -1,97 +1,110 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# PythiaTestApp
 
-# Getting Started
+React Native CLI test assignment: chat screen with Pythia (mock server, no Expo).
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Why React Native CLI (not Expo)
 
-## Step 1: Start Metro
+The brief suggests Expo, but this repo uses the official React Native CLI template. Native iOS/Android projects stay the source of truth; fonts and icons are wired through CLI tooling (`react-native.config.js`, `react-native-nano-icons`, CocoaPods) instead of Expo modules.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Design assets
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+All design tokens and media for the chat screen live under `src/assets/`:
+
+| Path | Role | In git? |
+| --- | --- | --- |
+| `src/assets/colors.ts` | Color tokens from the Figma Colors frame | yes |
+| `src/assets/fonts.ts` | `fontFamily` names for StyleSheet | yes |
+| `src/assets/fonts/` | Text `.ttf` sources (Playfair, IBM Plex Mono) | yes |
+| `src/assets/svg/` | Source SVGs for chat icons | yes |
+| `src/assets/nanoicons/` | Generated icon font + glyphmap (from SVG; imported by JS) | yes |
+| `src/assets/icons.ts` | Typed `Icon` component from nano-icons | yes |
+| `src/assets/images/` | Raster overlays used on the chat screen | yes |
+| `android/.../assets/fonts/` | Native copies after linking | **no** — gitignored |
+| `ios/nanoicons-fonts/` | Nano-icons iOS staging copy | **no** — gitignored |
+| `*/link-assets-manifest.json` | `react-native-asset` manifests | **no** — gitignored |
+
+### What we commit vs regenerate
+
+**Commit** the sources and the nano-icons build under `src/` (SVG, text TTFs, `nanoicons/chat.ttf` + `chat.glyphmap.json`). The glyphmap is imported in TypeScript, so that folder stays in the repo.
+
+**Do not commit** native-linked duplicates:
+
+- Android `app/src/main/assets/fonts/*` — copies from `react-native-asset` (text fonts) and `react-native-nano-icons` (`chat-<hash>.ttf`)
+- iOS `nanoicons-fonts/` — staging folder filled by the nano-icons CLI
+
+After clone or when SVGs / text fonts change:
 
 ```sh
-# Using npm
+npm run assets   # = fonts link + icons build/link
+```
+
+### Colors
+
+Tokens mirror Figma names (`text`, `text70`, `textUnactive`, `danger`, `accent`, `background`, `lightAccent`, `lightArea`, `lightBorder`). `backgroundLinear` is a data object for a future `LinearGradient` (not rendered yet). `notSent` (`#E6A8A8`) comes from the “Not sent / Retry” state and is separate from `danger`.
+
+### Fonts
+
+- **Playfair Display Regular** — headings / title (“Chat”), as in the mock.
+- **IBM Plex Mono Regular + SemiBold** — body, input, buttons. The brief forbids embedding SF Mono; we match sizes/letter-spacing from the mock, not glyph shape.
+
+Text fonts live in `src/assets/fonts/` and are linked with `react-native.config.js` → `npm run fonts` (`react-native-asset`).
+
+### Icons
+
+Only icons used on the chat screens (source SVGs in `src/assets/svg/`):
+
+- `arrow-up` — send
+- `menu` — decorative control in the message input (no action)
+- `chevron-left` — back in the nav (no action)
+- `restart` — retry after a failed send
+
+Stack: [`react-native-nano-icons`](https://reactnative.directory/package/react-native-nano-icons). Custom Figma SVGs are compiled into a native icon font (faster than `react-native-svg` components for repeated symbols; unlike `react-native-vector-icons`, the font is built from our files automatically).
+
+Config: [`.nanoicons.json`](.nanoicons.json). Generate under `src/assets/nanoicons/` and link into native projects:
+
+```sh
+npm run icons
+```
+
+Usage:
+
+```ts
+import {Icon} from './src/assets/icons';
+
+<Icon name="arrow-up" size={24} color="#FFFFFF" />
+```
+
+Metro (`withNanoIcons`) hot-reloads SVG edits in development. Before a release build, run `npm run assets` so native links match the current glyphmap.
+
+### Images
+
+- `bg.png` — chat background texture (apply ~20% opacity in UI, as in Figma)
+- `palantir.png` — crystal ball under the input (`Unactive` = same asset + `opacity: 0.5`)
+- `mascot.png` — Pythia avatar next to assistant messages
+
+Unused Figma icons and the birth-date / auth overlays are intentionally omitted.
+
+## Run
+
+```sh
+npm install
+npm run assets
+# iOS native deps (after adding native packages)
+cd ios && bundle exec pod install && cd ..
+
 npm start
-
-# OR using Yarn
-yarn start
+npm run ios   # or: npm run android
 ```
 
-## Step 2: Build and run your app
+Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / `npm run start:calm`, docs at `http://localhost:4000/docs`.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Architecture notes (so far)
 
-### Android
+- UI, state, and API layers will stay separate once the chat screen is built; assets are already isolated from screens.
+- Message state model, send / poll / `client_message_id`, and RTK wiring are not implemented yet — to be documented when added.
+- Known trade-off: gradient is a color token only until the chat layout lands.
+- Linked font binaries under `android/` / `ios/nanoicons-fonts/` are build products, not sources — see Design assets above.
 
-```sh
-# Using npm
-npm run android
+## AI assistance
 
-# OR using Yarn
-yarn android
-```
-
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Cursor agent helped export Figma assets, wire fonts/icons, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies) are intentional for the assignment.
