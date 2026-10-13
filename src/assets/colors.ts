@@ -10,10 +10,12 @@ export const colors = {
   lightAccent: '#1F2021',
   lightArea: 'rgba(255, 255, 255, 0.07)',
   lightBorder: 'rgba(255, 255, 255, 0.2)',
-  /**
-   * Vertical screen gradient from Figma "Background Linear".
-   * Pass to LinearGradient (or equivalent) when building the chat screen.
-   */
+  /** Figma glass overlays (Message Input / title pill / back). */
+  glassTintDark: 'rgba(0, 0, 0, 0.06)',
+  glassTintLight: 'rgba(255, 255, 255, 0.06)',
+  glassFallback: 'rgba(255, 255, 255, 0.08)',
+  sendIdle: 'rgba(255, 255, 255, 0.12)',
+  /** Vertical screen gradient from Figma "Background Linear" (`ChatBackground`). */
   backgroundLinear: {
     colors: ['#0D0D0F', '#292E36'] as const,
     locations: [0.51, 1] as const,

@@ -40,7 +40,7 @@ npm run assets   # = fonts link + icons build/link
 
 ### Colors
 
-Tokens mirror Figma names (`text`, `text70`, `textUnactive`, `danger`, `accent`, `background`, `lightAccent`, `lightArea`, `lightBorder`). `backgroundLinear` is a data object for a future `LinearGradient` (not rendered yet). `notSent` (`#E6A8A8`) comes from the “Not sent / Retry” state and is separate from `danger`.
+Tokens mirror Figma names (`text`, `text70`, `textUnactive`, `danger`, `accent`, `background`, `lightAccent`, `lightArea`, `lightBorder`). `backgroundLinear` drives the chat screen `LinearGradient`. `notSent` (`#E6A8A8`) comes from the “Not sent / Retry” state and is separate from `danger`.
 
 ### Fonts
 
@@ -102,9 +102,18 @@ Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / 
 
 ### Layers
 
-- **UI** — screens under `src/screens/` (chat UI not wired to the API yet).
+- **UI** — `src/screens/chat/`: `ChatScreen` (layout) + `useChatController` (list fetch, draft text). Presentational pieces live in `components/`.
 - **Assets** — `src/assets/` (colors, fonts, icons, images).
-- **API** — `src/api/`: shared client (`baseUrl`, `baseQuery`, store) + feature modules. Messages live under `src/api/messages/` (RTK Query slice + `sendAndPoll`). Chat UI stays free of fetch/poll details.
+- **API** — `src/api/`: shared client (`baseUrl`, `baseQuery`, store) + feature modules. Messages live under `src/api/messages/` (RTK Query slice + `sendAndPoll`). The screen never imports RTK Query directly.
+
+### Chat screen layout
+
+- Edge-to-edge: Android `edgeToEdgeEnabled=true`, translucent status bar; header/input pad with `useSafeAreaInsets` so the gradient still draws under system bars.
+- Message list: inverted `FlatList` (newest at the bottom, scroll up for history); content scrolls under the absolute header.
+- Keyboard: `useKeyboardLift` drives composer padding and palantir translate from one IME clock (iOS + Android). No `KeyboardAvoidingView`.
+- Glass: [`@callstack/liquid-glass`](https://reactnative.directory/package/@callstack/liquid-glass) (`clear` + `dark`) on **iOS 26+** with tokens `glassTintDark` / `glassTintLight`. Older iOS and Android use BlurView via `GlassSurface`.
+- Background: `react-native-linear-gradient` + `bg.png` at 20% opacity + dimmed `palantir.png` behind the input.
+- Intro comes from `GET /messages` (assistant portrait with `signs`). Send / poll / error-retry bubbles are not wired yet; the send button is visual-only.
 
 ### Why RTK Query
 
@@ -131,11 +140,11 @@ Helpers: `src/api/messages` — `messagesApi` + `sendAndPoll(dispatch, request)`
 
 ### Still unfinished
 
-- Chat screen layout and message UI state model.
-- Wiring `listMessages` / `sendAndPoll` into the chat UI.
-- Known trade-off: gradient is a color token only until the chat layout lands.
+- Wire `sendAndPoll` into the composer; message UI states (sending / thinking / not-sent + Retry).
+- Explicit per-message state model once send lands.
 - Linked font binaries under `android/` / `ios/nanoicons-fonts/` are build products, not sources — see Design assets above.
+- Liquid glass needs Xcode 26+ / iOS 26 simulator (current boot: iOS 18.6 → blur fallback). Older iOS and Android use BlurView, not the real liquid material.
 
 ## AI assistance
 
-Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock) are intentional for the assignment.
+Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, build the chat screen layout, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock, liquid-glass + Android fallback) are intentional for the assignment.
