@@ -8,21 +8,12 @@ import {resolveWaitSeconds, waitSeconds} from '../retryAfter';
 import {messagesApi} from './messagesApi';
 import type {Message, SendMessageRequest, SendMessageResult} from './types';
 
-const MAX_SEND_ATTEMPTS = 8;
 const MAX_POLL_ATTEMPTS = 60;
 
 export type SendAndPollResult = {
   user_message: Message;
   reply: Message;
 };
-
-function isRetryableSendError(error: ApiRequestError): boolean {
-  return (
-    error.status === 500 ||
-    error.status === 'FETCH_ERROR' ||
-    error.status === 'TIMEOUT_ERROR'
-  );
-}
 
 function isRetryablePollError(error: ApiRequestError): boolean {
   return (
@@ -40,36 +31,31 @@ function requireApiError(error: unknown, context: string): ApiRequestError {
   throw error ?? new Error(`${context} failed without an API error`);
 }
 
-async function sendWithRetry(
+/**
+ * One POST /messages. Transient 500 / network failures are not retried here —
+ * the UI shows Not sent and the user taps Retry with the same client_message_id.
+ */
+export async function sendMessageOnce(
   dispatch: AppDispatch,
   request: SendMessageRequest,
 ): Promise<WithRetryAfter<SendMessageResult>> {
-  let lastError: ApiRequestError | undefined;
+  const result = await dispatch(
+    messagesApi.endpoints.sendMessage.initiate(request),
+  );
 
-  for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt += 1) {
-    const result = await dispatch(
-      messagesApi.endpoints.sendMessage.initiate(request),
-    );
-
-    if (result.data) {
-      return result.data;
-    }
-
-    const error = requireApiError(result.error, 'sendMessage');
-    if (!isRetryableSendError(error)) {
-      throw error;
-    }
-
-    lastError = error;
-    if (attempt < MAX_SEND_ATTEMPTS) {
-      await waitSeconds(resolveWaitSeconds(error.retryAfterSeconds));
-    }
+  if (result.data) {
+    return result.data;
   }
 
-  throw lastError ?? new Error('sendMessage exhausted retries');
+  throw requireApiError(result.error, 'sendMessage');
 }
 
-async function pollUntilDone(
+/**
+ * Polls GET /messages/{id} until status is done, respecting Retry-After / 429.
+ * Poll failures are retried automatically (not a send failure per the brief).
+ * Each initiate() subscription is unsubscribed so the poll does not leak.
+ */
+export async function pollUntilDone(
   dispatch: AppDispatch,
   replyId: string,
   initialRetryAfterSeconds: number | null,
@@ -79,42 +65,48 @@ async function pollUntilDone(
   for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt += 1) {
     await waitSeconds(wait);
 
-    const result = await dispatch(
+    const result = dispatch(
       messagesApi.endpoints.getMessage.initiate(replyId, {
         forceRefetch: true,
       }),
     );
 
-    if (result.data) {
-      const {message, retryAfterSeconds} = result.data;
-      if (message.status === 'done') {
-        return message;
+    try {
+      const resolved = await result;
+
+      if (resolved.data) {
+        const {message, retryAfterSeconds} = resolved.data;
+        if (message.status === 'done') {
+          return message;
+        }
+        wait = resolveWaitSeconds(retryAfterSeconds);
+        continue;
       }
-      wait = resolveWaitSeconds(retryAfterSeconds);
-      continue;
-    }
 
-    const error = requireApiError(result.error, 'getMessage');
-    if (!isRetryablePollError(error)) {
-      throw error;
-    }
+      const error = requireApiError(resolved.error, 'getMessage');
+      if (!isRetryablePollError(error)) {
+        throw error;
+      }
 
-    wait = resolveWaitSeconds(error.retryAfterSeconds);
+      wait = resolveWaitSeconds(error.retryAfterSeconds);
+    } finally {
+      result.unsubscribe();
+    }
   }
 
   throw new Error(`getMessage polling timed out for reply ${replyId}`);
 }
 
 /**
- * Sends a user message (retrying transient failures with the same
- * `client_message_id`), then polls the assistant reply until `status === 'done'`,
- * respecting `Retry-After` / 429.
+ * Sends once, then polls the assistant reply until done.
+ * Prefer calling `sendMessageOnce` + `pollUntilDone` from the chat controller
+ * when UI must show thinking only after the POST is accepted.
  */
 export async function sendAndPoll(
   dispatch: AppDispatch,
   request: SendMessageRequest,
 ): Promise<SendAndPollResult> {
-  const sendResult = await sendWithRetry(dispatch, request);
+  const sendResult = await sendMessageOnce(dispatch, request);
   const {user_message, reply, retryAfterSeconds} = sendResult;
 
   if (reply.status === 'done') {

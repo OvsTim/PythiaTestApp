@@ -9,12 +9,14 @@ type MessageInputProps = {
   value: string;
   onChangeText: (text: string) => void;
   canSend: boolean;
+  onSend: () => void;
 };
 
 export function MessageInput({
   value,
   onChangeText,
   canSend,
+  onSend,
 }: MessageInputProps) {
   return (
     <View style={styles.wrap}>
@@ -38,6 +40,7 @@ export function MessageInput({
             accessibilityRole="button"
             accessibilityLabel="Send"
             disabled={!canSend}
+            onPress={onSend}
             style={[
               styles.send,
               {backgroundColor: canSend ? colors.accent : colors.sendIdle},

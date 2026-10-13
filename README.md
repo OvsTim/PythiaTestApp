@@ -98,13 +98,13 @@ npm run ios   # or: npm run android
 
 Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / `npm run start:calm`, docs at `http://localhost:4000/docs`.
 
-## Architecture notes (so far)
+## Architecture notes
 
 ### Layers
 
-- **UI** — `src/screens/chat/`: `ChatScreen` (layout) + `useChatController` (list fetch, draft text). Presentational pieces live in `components/`.
+- **UI** — `src/screens/chat/`: `ChatScreen` (layout) + `useChatController` (list merge, send / retry). Presentational pieces live in `components/`.
 - **Assets** — `src/assets/` (colors, fonts, icons, images).
-- **API** — `src/api/`: shared client (`baseUrl`, `baseQuery`, store) + feature modules. Messages live under `src/api/messages/` (RTK Query slice + `sendAndPoll`). The screen never imports RTK Query directly.
+- **API** — `src/api/`: shared client (`baseUrl`, `baseQuery`, store) + feature modules. Messages live under `src/api/messages/` (RTK Query slice + `sendMessageOnce` / `pollUntilDone`). The screen never imports RTK Query endpoints for send/poll.
 
 ### Chat screen layout
 
@@ -113,7 +113,7 @@ Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / 
 - Keyboard: `useKeyboardLift` drives composer padding and palantir translate from one IME clock (iOS + Android). No `KeyboardAvoidingView`.
 - Glass: [`@callstack/liquid-glass`](https://reactnative.directory/package/@callstack/liquid-glass) (`clear` + `dark`) on **iOS 26+** with tokens `glassTintDark` / `glassTintLight`. Older iOS and Android use BlurView via `GlassSurface`.
 - Background: `react-native-linear-gradient` + `bg.png` at 20% opacity + dimmed `palantir.png` behind the input.
-- Intro comes from `GET /messages` (assistant portrait with `signs`). Send / poll / error-retry bubbles are not wired yet; the send button is visual-only.
+- Intro comes from `GET /messages` (assistant portrait with `signs`). Composer send / poll / Not sent + Retry are wired through `useChatController`.
 
 ### Why RTK Query
 
@@ -130,21 +130,33 @@ Set in `src/api/baseUrl.ts` via `Platform.OS`. Emulator / cleartext details: loc
 
 ### Send / poll / `client_message_id`
 
-1. `POST /messages` with a client-generated `client_message_id` and `text`.
-2. On transient failure (`500` / network), **retry the same** `client_message_id` — the mock is idempotent and will not create a duplicate user message.
-3. Response `202` includes `Retry-After` and a `reply` with `status: "generating"`.
-4. Poll `GET /messages/{reply.id}` only after waiting `Retry-After` seconds; on `429`, wait that response’s `Retry-After` and continue.
-5. Stop when `reply.status === "done"`.
+1. `POST /messages` with a client-generated `client_message_id` (`react-native-uuid`) and `text`.
+2. **One POST attempt.** On `500` / network (or other POST failure), the bubble stays with **Not sent** + **Retry**. There is no automatic send retry — the user taps Retry with the **same** `client_message_id` (mock is idempotent; safe even if the server saved before returning 500).
+3. After POST is accepted (`202` / `200`), show **Pythia is thinking...** and disable send. Poll `GET /messages/{reply.id}` after waiting `Retry-After`; on `429` / poll `500` / network, wait and poll again inside `pollUntilDone` (poll errors are **not** Not sent). If that cycle still fails, the controller runs **one** more `pollUntilDone` — no infinite outer loop.
+4. Stop when `reply.status === "done"`. If the reply is already `done` on an idempotent send retry, skip thinking. If both poll cycles fail, the turn stays on thinking (still not Not sent).
 
-Helpers: `src/api/messages` — `messagesApi` + `sendAndPoll(dispatch, request)`. `POST /reset` is intentionally not exposed.
+Helpers: `sendMessageOnce` + `pollUntilDone` (controller phases); `sendAndPoll` composes both. `POST /reset` is not exposed.
+
+### Message list state model
+
+Each FlatList row has one `kind` (no overlapping flags):
+
+| `kind` | Meaning |
+| --- | --- |
+| `intro` | First assistant message with `signs` (natal chart + copy) |
+| `user` | User bubble; `delivery`: `sending` \| `failed` \| `sent` |
+| `thinking` | Mascot + “Pythia is thinking...” (only after POST accepted) |
+| `assistant` | Done reply text + mascot |
+
+Outbound turns use one phase each (`sending` → `failed` **or** `sending` → `thinking` → removed): see `OutboundTurn` in `chatListTypes.ts`. Local rows merge with `GET /messages` by `client_message_id` so a 500-after-save never shows both Not sent and a duplicate server bubble. Server `generating` replies become `thinking`, not empty text.
+
+While send or poll is in flight (`isBusy`), send and Retry are disabled. Send stays off until the first history response settles. New messages are allowed when only failed bubbles remain.
 
 ### Still unfinished
 
-- Wire `sendAndPoll` into the composer; message UI states (sending / thinking / not-sent + Retry).
-- Explicit per-message state model once send lands.
 - Linked font binaries under `android/` / `ios/nanoicons-fonts/` are build products, not sources — see Design assets above.
 - Liquid glass needs Xcode 26+ / iOS 26 simulator (current boot: iOS 18.6 → blur fallback). Older iOS and Android use BlurView, not the real liquid material.
 
 ## AI assistance
 
-Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, build the chat screen layout, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock, liquid-glass + Android fallback) are intentional for the assignment.
+Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, build the chat screen layout, wire send / poll / Not sent + Retry, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock, liquid-glass + Android fallback, manual send Retry only) are intentional for the assignment.

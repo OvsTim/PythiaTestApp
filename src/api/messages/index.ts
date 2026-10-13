@@ -5,7 +5,12 @@ export {
   useListMessagesQuery,
   useSendMessageMutation,
 } from './messagesApi';
-export {sendAndPoll, type SendAndPollResult} from './sendAndPoll';
+export {
+  pollUntilDone,
+  sendAndPoll,
+  sendMessageOnce,
+  type SendAndPollResult,
+} from './sendAndPoll';
 export type {
   GetMessageResult,
   ListMessagesResult,

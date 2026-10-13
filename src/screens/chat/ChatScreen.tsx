@@ -1,3 +1,4 @@
+import {useCallback} from 'react';
 import {
   Animated,
   FlatList,
@@ -7,7 +8,7 @@ import {
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import type {Message} from '../../api';
+import type {ChatListRow} from './chatListTypes';
 import {ChatBackground} from './components/ChatBackground';
 import {
   ChatHeader,
@@ -19,29 +20,39 @@ import {MessageInput} from './components/MessageInput';
 import {useChatController} from './useChatController';
 import {useKeyboardLift} from './useKeyboardLift';
 
-function messageKey(message: Message): string {
-  return message.id;
+function rowKey(row: ChatListRow): string {
+  return row.key;
 }
-
-const renderMessage: ListRenderItem<Message> = ({item}) => (
-  <ChatMessageItem message={item} />
-);
 
 export function ChatScreen() {
   const insets = useSafeAreaInsets();
   const {palantirLift, composerPadding} = useKeyboardLift(insets.bottom);
   const {
-    listMessages,
+    listRows,
     isLoading,
     isError,
     refetch,
     draftText,
     setDraftText,
     canSend,
+    isBusy,
+    send,
+    retry,
   } = useChatController();
 
   /** inverted FlatList: paddingBottom is the visual top (under the overlay header). */
   const listPaddingUnderHeader = insets.top + CHAT_HEADER_ROW_HEIGHT + 12;
+
+  const renderRow: ListRenderItem<ChatListRow> = useCallback(
+    ({item}) => (
+      <ChatMessageItem
+        row={item}
+        onRetry={retry}
+        retryDisabled={isBusy}
+      />
+    ),
+    [isBusy, retry],
+  );
 
   return (
     <ChatBackground palantirLift={palantirLift}>
@@ -50,9 +61,10 @@ export function ChatScreen() {
           <FlatList
             style={styles.list}
             inverted
-            data={listMessages}
-            keyExtractor={messageKey}
-            renderItem={renderMessage}
+            data={listRows}
+            extraData={isBusy}
+            keyExtractor={rowKey}
+            renderItem={renderRow}
             ListEmptyComponent={
               <ChatListEmpty
                 isLoading={isLoading}
@@ -75,6 +87,7 @@ export function ChatScreen() {
             value={draftText}
             onChangeText={setDraftText}
             canSend={canSend}
+            onSend={send}
           />
         </Animated.View>
       </View>
