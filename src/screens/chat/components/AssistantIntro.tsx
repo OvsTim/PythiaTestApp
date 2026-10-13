@@ -1,3 +1,4 @@
+import {memo} from 'react';
 import {Image, StyleSheet, Text, View} from 'react-native';
 
 import type {Message} from '../../../api';
@@ -29,7 +30,7 @@ function splitPortraitText(text: string): {body: string; question: string} {
   };
 }
 
-export function AssistantIntro({message}: AssistantIntroProps) {
+function AssistantIntroView({message}: AssistantIntroProps) {
   const signs = message.signs ?? [];
   const {body, question} = splitPortraitText(message.text ?? '');
 
@@ -50,6 +51,7 @@ export function AssistantIntro({message}: AssistantIntroProps) {
     </View>
   );
 }
+export const AssistantIntro = memo(AssistantIntroView);
 
 const styles = StyleSheet.create({
   root: {

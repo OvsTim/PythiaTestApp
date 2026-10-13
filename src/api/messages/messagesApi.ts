@@ -10,6 +10,9 @@ import type {
   SendMessageResult,
 } from './types';
 
+/** POST /messages rejects longer text with 400, so Retry could never succeed. */
+export const MESSAGE_TEXT_MAX_LENGTH = 2000;
+
 export const messagesApi = createApi({
   reducerPath: 'messagesApi',
   baseQuery: apiBaseQuery,
@@ -41,9 +44,4 @@ export const messagesApi = createApi({
   }),
 });
 
-export const {
-  useListMessagesQuery,
-  useSendMessageMutation,
-  useGetMessageQuery,
-  useLazyGetMessageQuery,
-} = messagesApi;
+export const {useListMessagesQuery} = messagesApi;

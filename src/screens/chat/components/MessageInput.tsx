@@ -1,5 +1,6 @@
 import {Pressable, StyleSheet, TextInput, View} from 'react-native';
 
+import {MESSAGE_TEXT_MAX_LENGTH} from '../../../api';
 import {colors} from '../../../assets/colors';
 import {fonts} from '../../../assets/fonts';
 import {Icon} from '../../../assets/icons';
@@ -30,6 +31,7 @@ export function MessageInput({
           placeholder="Ask the stars..."
           placeholderTextColor={colors.textUnactive}
           multiline
+          maxLength={MESSAGE_TEXT_MAX_LENGTH}
           style={styles.field}
           cursorColor={colors.text}
           selectionColor={colors.text70}

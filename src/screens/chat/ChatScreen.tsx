@@ -29,9 +29,9 @@ export function ChatScreen() {
   const {palantirLift, composerPadding} = useKeyboardLift(insets.bottom);
   const {
     listRows,
-    isLoading,
-    isError,
-    refetch,
+    isHistoryLoading,
+    isHistoryError,
+    reloadHistory,
     draftText,
     setDraftText,
     canSend,
@@ -45,11 +45,7 @@ export function ChatScreen() {
 
   const renderRow: ListRenderItem<ChatListRow> = useCallback(
     ({item}) => (
-      <ChatMessageItem
-        row={item}
-        onRetry={retry}
-        retryDisabled={isBusy}
-      />
+      <ChatMessageItem row={item} onRetry={retry} isBusy={isBusy} />
     ),
     [isBusy, retry],
   );
@@ -67,9 +63,9 @@ export function ChatScreen() {
             renderItem={renderRow}
             ListEmptyComponent={
               <ChatListEmpty
-                isLoading={isLoading}
-                isError={isError}
-                onRetry={refetch}
+                isLoading={isHistoryLoading}
+                isError={isHistoryError}
+                onRetry={reloadHistory}
               />
             }
             contentContainerStyle={[

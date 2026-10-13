@@ -117,7 +117,7 @@ Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / 
 
 ### Why RTK Query
 
-Caching, typed endpoints, and generated hooks for `GET/POST /messages` without a hand-rolled client. Send/poll orchestration that must respect `Retry-After` and idempotent `client_message_id` lives in `src/api/messages/sendAndPoll`, not in UI components.
+Caching, typed endpoints, and generated hooks for `GET/POST /messages` without a hand-rolled client. The history cache is the single source of truth for server messages: send and poll results are merged into it with `updateQueryData`. Send/poll steps that must respect `Retry-After` live in `src/api/messages/sendFlow.ts`, not in UI components. RTK's built-in `pollingInterval` is not used because a fixed interval cannot follow a per-response `Retry-After`.
 
 ### Mock base URL
 
@@ -130,33 +130,64 @@ Set in `src/api/baseUrl.ts` via `Platform.OS`. Emulator / cleartext details: loc
 
 ### Send / poll / `client_message_id`
 
-1. `POST /messages` with a client-generated `client_message_id` (`react-native-uuid`) and `text`.
-2. **One POST attempt.** On `500` / network (or other POST failure), the bubble stays with **Not sent** + **Retry**. There is no automatic send retry — the user taps Retry with the **same** `client_message_id` (mock is idempotent; safe even if the server saved before returning 500).
-3. After POST is accepted (`202` / `200`), show **Pythia is thinking...** and disable send. Poll `GET /messages/{reply.id}` after waiting `Retry-After`; on `429` / poll `500` / network, wait and poll again inside `pollUntilDone` (poll errors are **not** Not sent). If that cycle still fails, the controller runs **one** more `pollUntilDone` — no infinite outer loop.
-4. Stop when `reply.status === "done"`. If the reply is already `done` on an idempotent send retry, skip thinking. If both poll cycles fail, the turn stays on thinking (still not Not sent).
+1. `POST /messages` with a client-generated `client_message_id` (`react-native-uuid`, one per message) and `text`.
+2. **One POST attempt** (`sendMessageOnce`). On `500`, network error, or the 15 s request timeout, the bubble stays with **Not sent** + **Retry**. There is no automatic send retry: Retry re-sends the **same** `client_message_id` and text. The mock is idempotent, so this is safe even when the server saved the message before answering 500.
+3. On `202` / `200` the user message and the reply go into the history cache. A `generating` reply renders as **Pythia is thinking...** and disables send.
+4. `pollUntilDone` waits the previous `Retry-After` (2 s if the server sent none), then calls `GET /messages/{reply.id}`, and repeats until `status === "done"`. Any poll error (`429`, `500`, network) only means "wait and poll again": it never turns the message into Not sent. Polling stops only when the reply is done or the screen unmounts (`AbortSignal`).
+5. Double tap on Send: a synchronous ref guard drops the second tap before React re-renders, so it cannot create a second `client_message_id`.
+6. Replies that are still `generating` when history loads (e.g. after an app reload) are polled too; at most one poll runs per reply id.
 
-Helpers: `sendMessageOnce` + `pollUntilDone` (controller phases); `sendAndPoll` composes both. `POST /reset` is not exposed.
+`POST /reset` is not exposed in the app.
 
 ### Message list state model
 
-Each FlatList row has one `kind` (no overlapping flags):
+Two sources, each with one explicit state:
+
+- **Server messages** (history cache): `status` is `generating` or `done`, exactly as the API returns it.
+- **Outbound messages** (local, not yet accepted by the server): `delivery` is `sending` or `failed` (`OutboundMessage` in `chatListTypes.ts`). After a successful POST the local copy is dropped, because the server copy is now in the cache.
+
+`buildChatList` turns both into rows with one `kind` each:
 
 | `kind` | Meaning |
 | --- | --- |
 | `intro` | First assistant message with `signs` (natal chart + copy) |
 | `user` | User bubble; `delivery`: `sending` \| `failed` \| `sent` |
-| `thinking` | Mascot + “Pythia is thinking...” (only after POST accepted) |
+| `thinking` | A server reply with `status: "generating"` |
 | `assistant` | Done reply text + mascot |
 
-Outbound turns use one phase each (`sending` → `failed` **or** `sending` → `thinking` → removed): see `OutboundTurn` in `chatListTypes.ts`. Local rows merge with `GET /messages` by `client_message_id` so a 500-after-save never shows both Not sent and a duplicate server bubble. Server `generating` replies become `thinking`, not empty text.
+A server user message is hidden while a local copy with the same `client_message_id` exists, so a 500-after-save never shows Not sent next to a duplicate bubble.
 
-While send or poll is in flight (`isBusy`), send and Retry are disabled. Send stays off until the first history response settles. New messages are allowed when only failed bubbles remain.
+`isBusy` is derived (a reply is generating, or a POST is in flight), not stored. While busy, Send and Retry are disabled. Send also stays off until history has loaded. New messages are allowed when only failed bubbles remain.
+
+### Re-renders
+
+Rows are rebuilt on every list change, so `ChatMessageItem` delegates to memoized leaves that take primitives (`text`, `clientMessageId`, …). `retry` has a stable identity because the failed row passes its own text back, so a send/poll step only re-renders the rows whose content changed.
+
+### Known trade-offs
+
+- Not sent bubbles live in component state. After an app restart they are gone (if the server had saved the message, it appears in history as sent).
+- Only one turn at a time: Send is disabled while any reply is generating, as the brief requires.
+- When the server gives no `Retry-After` (network error, reply found in history), polling waits a fixed 2 s.
+- Keyboard handling uses RN `Keyboard` events, not `react-native-keyboard-controller`. On Android the lift starts after `keyboardDidShow`, so it trails the IME animation slightly.
 
 ### Still unfinished
 
 - Linked font binaries under `android/` / `ios/nanoicons-fonts/` are build products, not sources — see Design assets above.
 - Liquid glass needs Xcode 26+ / iOS 26 simulator (current boot: iOS 18.6 → blur fallback). Older iOS and Android use BlurView, not the real liquid material.
+- No automated tests (optional in the brief). The template `__tests__/App.test.tsx` does not run as is: Jest is not configured to transform the ESM build of `react-redux`.
+
+## Time spent
+
+About **4 hours** on 2026-10-13 (≈14:00–17:55, UTC+3), measured from git commit timestamps.
+
+| Time | Step |
+| --- | --- |
+| 14:00–15:11 | Project init (RN CLI), Figma assets: colors, fonts, icons (~1.2 h) |
+| 15:11–15:44 | RTK Query API layer, `Retry-After` handling (~0.5 h) |
+| 15:44–16:54 | Chat screen layout, inverted list, keyboard lift (~1 h) |
+| 16:54–17:30 | Send, thinking, Not sent + Retry without duplicates (~0.5 h) |
+| 17:30–17:55 | Review against the brief: state model simplification, poll cancellation, memoized rows, README (~0.5 h) |
 
 ## AI assistance
 
-Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, build the chat screen layout, wire send / poll / Not sent + Retry, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock, liquid-glass + Android fallback, manual send Retry only) are intentional for the assignment.
+Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, build the chat screen layout, wire send / poll / Not sent + Retry, review the code against the brief (simplified message state, poll cancellation, memoized rows), and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock, liquid-glass + Android fallback, manual send Retry only) are intentional for the assignment.

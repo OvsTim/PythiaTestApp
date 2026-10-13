@@ -12,50 +12,47 @@ import {
 } from '../../api';
 
 import {buildChatList} from './buildChatList';
-import type {OutboundTurn} from './chatListTypes';
+import type {OutboundMessage} from './chatListTypes';
 import {mergeMessages} from './mergeMessages';
 
-const DEFAULT_POLL_RETRY_AFTER_SECONDS = null;
+type PollSession = {
+  signal: AbortSignal;
+  replyIds: Set<string>;
+};
 
 export function useChatController() {
   const dispatch = useDispatch<AppDispatch>();
-  const {data, isLoading, isError, refetch, isFetching} = useListMessagesQuery();
+  const {data, isFetching, isError, refetch} = useListMessagesQuery();
+  const serverMessages = data?.messages;
   const [draftText, setDraftText] = useState('');
-  const [outboundTurns, setOutboundTurns] = useState<OutboundTurn[]>([]);
-  const [isBusy, setIsBusy] = useState(false);
-  const busyRef = useRef(false);
-  const cancelledRef = useRef(false);
+  const [outboundMessages, setOutboundMessages] = useState<OutboundMessage[]>(
+    [],
+  );
+  /** Two taps in one frame both see stale React state, so guard synchronously. */
+  const isPostInFlightRef = useRef(false);
+  const pollSessionRef = useRef<PollSession | null>(null);
 
+  /** Per mount, so a remount (or Fast Refresh) restarts polling cleanly. */
   useEffect(() => {
-    cancelledRef.current = false;
-    return () => {
-      cancelledRef.current = true;
-    };
+    const controller = new AbortController();
+    pollSessionRef.current = {signal: controller.signal, replyIds: new Set()};
+    return () => controller.abort();
   }, []);
 
-  const chronologicalRows = useMemo(
-    () => buildChatList(data?.messages, outboundTurns),
-    [data?.messages, outboundTurns],
-  );
-
-  /** Newest first for an inverted FlatList. */
   const listRows = useMemo(
-    () => chronologicalRows.slice().reverse(),
-    [chronologicalRows],
+    () => buildChatList(serverMessages, outboundMessages),
+    [serverMessages, outboundMessages],
   );
 
-  const hasMessages =
-    (data?.messages?.length ?? 0) > 0 || outboundTurns.length > 0;
-  const historySettled = !(isLoading && data == null);
+  const hasGeneratingReply =
+    serverMessages?.some(message => message.status === 'generating') ?? false;
+  const isBusy =
+    hasGeneratingReply ||
+    outboundMessages.some(message => message.delivery === 'sending');
   const canSend =
-    draftText.trim().length > 0 && !isBusy && historySettled;
+    draftText.trim().length > 0 && serverMessages != null && !isBusy;
 
-  const setBusy = useCallback((next: boolean) => {
-    busyRef.current = next;
-    setIsBusy(next);
-  }, []);
-
-  const patchListCache = useCallback(
+  const patchHistory = useCallback(
     (incoming: Message[]) => {
       dispatch(
         messagesApi.util.updateQueryData('listMessages', undefined, draft => {
@@ -66,136 +63,100 @@ export function useChatController() {
     [dispatch],
   );
 
-  const upsertOutbound = useCallback((turn: OutboundTurn) => {
-    setOutboundTurns(current => {
-      const without = current.filter(
-        item => item.clientMessageId !== turn.clientMessageId,
-      );
-      return [...without, turn];
-    });
+  const setOutbound = useCallback((message: OutboundMessage) => {
+    setOutboundMessages(current =>
+      current.some(item => item.clientMessageId === message.clientMessageId)
+        ? current.map(item =>
+            item.clientMessageId === message.clientMessageId ? message : item,
+          )
+        : [...current, message],
+    );
   }, []);
 
   const removeOutbound = useCallback((clientMessageId: string) => {
-    setOutboundTurns(current =>
+    setOutboundMessages(current =>
       current.filter(item => item.clientMessageId !== clientMessageId),
     );
   }, []);
 
-  const runSendFlow = useCallback(
-    async (clientMessageId: string, text: string) => {
-      if (busyRef.current) {
+  /** At most one poll per reply, whether it came from a send or from history. */
+  const pollReply = useCallback(
+    async (replyId: string, retryAfterSeconds: number | null) => {
+      const session = pollSessionRef.current;
+      if (session == null || session.replyIds.has(replyId)) {
         return;
       }
-      setBusy(true);
-      upsertOutbound({clientMessageId, text, phase: 'sending'});
-
-      let postAccepted = false;
-
-      try {
-        const sendResult = await sendMessageOnce(dispatch, {
-          client_message_id: clientMessageId,
-          text,
-        });
-        postAccepted = true;
-
-        const {user_message, reply, retryAfterSeconds} = sendResult;
-        patchListCache([user_message, reply]);
-
-        if (reply.status === 'done') {
-          removeOutbound(clientMessageId);
-          return;
-        }
-
-        upsertOutbound({
-          clientMessageId,
-          replyId: reply.id,
-          phase: 'thinking',
-        });
-
-        // Transient poll errors are retried inside pollUntilDone.
-        // If that cycle still fails, try one more full poll — never Not sent.
-        let doneReply: Message;
-        try {
-          doneReply = await pollUntilDone(
-            dispatch,
-            reply.id,
-            retryAfterSeconds,
-          );
-        } catch {
-          if (cancelledRef.current) {
-            return;
-          }
-          doneReply = await pollUntilDone(
-            dispatch,
-            reply.id,
-            DEFAULT_POLL_RETRY_AFTER_SECONDS,
-          );
-        }
-        if (cancelledRef.current) {
-          return;
-        }
-        patchListCache([doneReply]);
-        removeOutbound(clientMessageId);
-      } catch {
-        if (!postAccepted && !cancelledRef.current) {
-          upsertOutbound({clientMessageId, text, phase: 'failed'});
-        }
-        // After POST accept, a failed poll leaves phase: thinking (not Not sent).
-      } finally {
-        if (!cancelledRef.current) {
-          setBusy(false);
-        }
+      session.replyIds.add(replyId);
+      const reply = await pollUntilDone(
+        dispatch,
+        replyId,
+        retryAfterSeconds,
+        session.signal,
+      );
+      session.replyIds.delete(replyId);
+      if (reply != null) {
+        patchHistory([reply]);
       }
     },
-    [
-      dispatch,
-      patchListCache,
-      removeOutbound,
-      setBusy,
-      upsertOutbound,
-    ],
+    [dispatch, patchHistory],
+  );
+
+  /** Replies still generating when history loads (e.g. after an app reload). */
+  useEffect(() => {
+    for (const message of serverMessages ?? []) {
+      if (message.status === 'generating') {
+        pollReply(message.id, null);
+      }
+    }
+  }, [pollReply, serverMessages]);
+
+  const postMessage = useCallback(
+    async (clientMessageId: string, text: string) => {
+      if (isPostInFlightRef.current) {
+        return;
+      }
+      isPostInFlightRef.current = true;
+      setOutbound({clientMessageId, text, delivery: 'sending'});
+
+      try {
+        const {user_message, reply, retryAfterSeconds} = await sendMessageOnce(
+          dispatch,
+          {client_message_id: clientMessageId, text},
+        );
+        if (reply.status === 'generating') {
+          // Must register before the reply reaches the cache, or the history
+          // effect starts its own poll without this Retry-After.
+          pollReply(reply.id, retryAfterSeconds);
+        }
+        patchHistory([user_message, reply]);
+        removeOutbound(clientMessageId);
+      } catch {
+        setOutbound({clientMessageId, text, delivery: 'failed'});
+      } finally {
+        isPostInFlightRef.current = false;
+      }
+    },
+    [dispatch, patchHistory, pollReply, removeOutbound, setOutbound],
   );
 
   const send = useCallback(() => {
-    const text = draftText.trim();
-    if (text.length === 0 || busyRef.current || !historySettled) {
+    if (!canSend) {
       return;
     }
-    const clientMessageId = String(uuid.v4());
     setDraftText('');
-    runSendFlow(clientMessageId, text).catch(() => {
-      // Failures are handled inside runSendFlow (Not sent / poll retry).
-    });
-  }, [draftText, historySettled, runSendFlow]);
-
-  const retry = useCallback(
-    (clientMessageId: string) => {
-      if (busyRef.current) {
-        return;
-      }
-      const turn = outboundTurns.find(
-        item => item.clientMessageId === clientMessageId,
-      );
-      if (turn == null || turn.phase !== 'failed') {
-        return;
-      }
-      runSendFlow(clientMessageId, turn.text).catch(() => {
-        // Failures are handled inside runSendFlow (Not sent / poll retry).
-      });
-    },
-    [outboundTurns, runSendFlow],
-  );
+    postMessage(String(uuid.v4()), draftText.trim());
+  }, [canSend, draftText, postMessage]);
 
   return {
     listRows,
-    isLoading: isLoading || (isFetching && !hasMessages),
-    isError,
-    refetch,
+    isHistoryLoading: isFetching && serverMessages == null,
+    isHistoryError: isError,
+    reloadHistory: refetch,
     draftText,
     setDraftText,
     canSend,
     isBusy,
     send,
-    retry,
+    retry: postMessage,
   };
 }

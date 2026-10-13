@@ -15,7 +15,7 @@ export type ApiBaseQueryMeta = {
 
 /**
  * RTK отдаёт FetchBaseQueryError как union — приводим к одному ApiRequestError,
- * чтобы sendAndPoll смотрел только status + retryAfterSeconds.
+ * чтобы sendFlow смотрел только status + retryAfterSeconds.
  *
  * - status: number → сервер ответил (400/429/500…); тело берём только если
  *   это формат мока `{ error: { code, message } }`.
@@ -41,8 +41,12 @@ function toApiRequestError(
   };
 }
 
+/** A hung request must end as a send failure (Not sent), not spin forever. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: API_BASE_URL,
+  timeout: REQUEST_TIMEOUT_MS,
 });
 
 /**

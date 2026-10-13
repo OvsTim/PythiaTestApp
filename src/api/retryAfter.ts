@@ -19,10 +19,19 @@ export function parseRetryAfterSeconds(
   return seconds;
 }
 
-export function waitSeconds(seconds: number): Promise<void> {
-  const ms = Math.max(0, seconds) * 1000;
+/** Resolves after `seconds`, or as soon as `signal` aborts. */
+export function waitSeconds(
+  seconds: number,
+  signal: AbortSignal,
+): Promise<void> {
   return new Promise(resolve => {
-    setTimeout(resolve, ms);
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, Math.max(0, seconds) * 1000);
+    signal.addEventListener('abort', finish);
   });
 }
 

@@ -1,3 +1,4 @@
+import {memo} from 'react';
 import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {colors} from '../../../assets/colors';
@@ -8,64 +9,112 @@ import {AssistantIntro} from './AssistantIntro';
 
 const mascotImage = require('../../../assets/images/mascot.png');
 
+type RetryHandler = (clientMessageId: string, text: string) => void;
+
 type ChatMessageItemProps = {
   row: ChatListRow;
-  onRetry: (clientMessageId: string) => void;
-  retryDisabled: boolean;
+  onRetry: RetryHandler;
+  isBusy: boolean;
 };
 
-export function ChatMessageItem({
-  row,
-  onRetry,
-  retryDisabled,
-}: ChatMessageItemProps) {
+/**
+ * Row objects are rebuilt on every list change, so the memoized leaves below
+ * take primitives and skip re-rendering rows whose content did not change.
+ */
+export function ChatMessageItem({row, onRetry, isBusy}: ChatMessageItemProps) {
   switch (row.kind) {
     case 'intro':
       return <AssistantIntro message={row.message} />;
-
     case 'thinking':
-      return (
-        <View style={styles.thinkingRow}>
-          <Image source={mascotImage} style={styles.mascot} />
-          <Text style={styles.thinkingText}>Pythia is thinking...</Text>
-        </View>
-      );
-
+      return <ThinkingRow />;
     case 'assistant':
-      return (
-        <View style={styles.assistantRow}>
-          <Text style={styles.assistantText}>{row.text}</Text>
-          <Image source={mascotImage} style={styles.mascot} />
-        </View>
-      );
-
+      return <AssistantMessage text={row.text} />;
     case 'user':
-      return (
-        <View style={styles.userBlock}>
-          <View style={styles.userRow}>
-            <View style={styles.userBubble}>
-              <Text style={styles.userText}>{row.text}</Text>
-            </View>
-          </View>
-          {row.delivery === 'failed' ? (
-            <View style={styles.failureRow}>
-              <Text style={styles.failureLabel}>Not sent</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Retry"
-                disabled={retryDisabled}
-                onPress={() => onRetry(row.clientMessageId)}
-                style={[styles.retryHit, retryDisabled && styles.retryDisabled]}
-                hitSlop={8}>
-                <Icon name="restart" size={24} color={colors.notSent} />
-                <Text style={styles.retryLabel}>Retry</Text>
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
+      return row.delivery === 'failed' ? (
+        <FailedUserMessage
+          clientMessageId={row.clientMessageId}
+          text={row.text}
+          onRetry={onRetry}
+          retryDisabled={isBusy}
+        />
+      ) : (
+        <UserMessage text={row.text} />
       );
   }
 }
+
+function ThinkingRowView() {
+  return (
+    <View style={styles.thinkingRow}>
+      <Image source={mascotImage} style={styles.mascot} />
+      <Text style={styles.thinkingText}>Pythia is thinking...</Text>
+    </View>
+  );
+}
+const ThinkingRow = memo(ThinkingRowView);
+
+function AssistantMessageView({text}: {text: string}) {
+  return (
+    <View style={styles.assistantRow}>
+      <Text style={styles.assistantText}>{text}</Text>
+      <Image source={mascotImage} style={styles.mascot} />
+    </View>
+  );
+}
+const AssistantMessage = memo(AssistantMessageView);
+
+function UserBubble({text}: {text: string}) {
+  return (
+    <View style={styles.userRow}>
+      <View style={styles.userBubble}>
+        <Text style={styles.userText}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
+function UserMessageView({text}: {text: string}) {
+  return (
+    <View style={styles.userBlock}>
+      <UserBubble text={text} />
+    </View>
+  );
+}
+const UserMessage = memo(UserMessageView);
+
+type FailedUserMessageProps = {
+  clientMessageId: string;
+  text: string;
+  onRetry: RetryHandler;
+  retryDisabled: boolean;
+};
+
+function FailedUserMessageView({
+  clientMessageId,
+  text,
+  onRetry,
+  retryDisabled,
+}: FailedUserMessageProps) {
+  return (
+    <View style={styles.userBlock}>
+      <UserBubble text={text} />
+      <View style={styles.failureRow}>
+        <Text style={styles.failureLabel}>Not sent</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry"
+          disabled={retryDisabled}
+          onPress={() => onRetry(clientMessageId, text)}
+          style={[styles.retryHit, retryDisabled && styles.retryDisabled]}
+          hitSlop={8}>
+          <Icon name="restart" size={24} color={colors.notSent} />
+          <Text style={styles.retryLabel}>Retry</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+const FailedUserMessage = memo(FailedUserMessageView);
 
 const styles = StyleSheet.create({
   userBlock: {

@@ -10,6 +10,4 @@ export const store = configureStore({
     getDefaultMiddleware().concat(messagesApi.middleware),
 });
 
-export type AppStore = typeof store;
-export type AppDispatch = AppStore['dispatch'];
-export type RootState = ReturnType<AppStore['getState']>;
+export type AppDispatch = typeof store.dispatch;

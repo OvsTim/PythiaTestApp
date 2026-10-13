@@ -1,21 +1,14 @@
 import type {Message} from '../../api';
 
 /**
- * One explicit delivery phase per outbound user turn (no parallel flags).
- * - sending / failed: bubble is local (not yet reconciled as sent in the list)
- * - thinking: POST accepted; user is in the server cache; show thinking row
+ * A user message the server has not accepted yet. Once POST succeeds it moves
+ * into the history cache and the local copy is dropped.
  */
-export type OutboundTurn =
-  | {
-      clientMessageId: string;
-      text: string;
-      phase: 'sending' | 'failed';
-    }
-  | {
-      clientMessageId: string;
-      replyId: string;
-      phase: 'thinking';
-    };
+export type OutboundMessage = {
+  clientMessageId: string;
+  text: string;
+  delivery: 'sending' | 'failed';
+};
 
 export type ChatListRow =
   | {
@@ -26,18 +19,22 @@ export type ChatListRow =
   | {
       kind: 'user';
       key: string;
-      clientMessageId: string;
       text: string;
-      delivery: 'sending' | 'failed' | 'sent';
+      delivery: 'sending' | 'sent';
+    }
+  | {
+      kind: 'user';
+      key: string;
+      text: string;
+      delivery: 'failed';
+      clientMessageId: string;
     }
   | {
       kind: 'assistant';
       key: string;
-      id: string;
       text: string;
     }
   | {
       kind: 'thinking';
       key: string;
-      clientMessageId: string;
     };

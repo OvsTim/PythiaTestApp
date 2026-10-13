@@ -1,24 +1,7 @@
 export {
+  MESSAGE_TEXT_MAX_LENGTH,
   messagesApi,
-  useGetMessageQuery,
-  useLazyGetMessageQuery,
   useListMessagesQuery,
-  useSendMessageMutation,
 } from './messagesApi';
-export {
-  pollUntilDone,
-  sendAndPoll,
-  sendMessageOnce,
-  type SendAndPollResult,
-} from './sendAndPoll';
-export type {
-  GetMessageResult,
-  ListMessagesResult,
-  Message,
-  MessageRole,
-  MessageStatus,
-  SendMessageRequest,
-  SendMessageResult,
-  Sign,
-  SignKind,
-} from './types';
+export {pollUntilDone, sendMessageOnce} from './sendFlow';
+export type {Message, Sign, SignKind} from './types';
