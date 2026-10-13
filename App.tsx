@@ -7,19 +7,24 @@
 
 import {NewAppScreen} from '@react-native/new-app-screen';
 import {StatusBar, StyleSheet, useColorScheme, View} from 'react-native';
+import {Provider} from 'react-redux';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 
+import {store} from './src/api';
+
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
-    </SafeAreaProvider>
+    <Provider store={store}>
+      <SafeAreaProvider>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+        <AppContent />
+      </SafeAreaProvider>
+    </Provider>
   );
 }
 

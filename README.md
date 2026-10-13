@@ -100,11 +100,42 @@ Mock server (not in this repo): see local `docs/rn-test-mock` — `npm start` / 
 
 ## Architecture notes (so far)
 
-- UI, state, and API layers will stay separate once the chat screen is built; assets are already isolated from screens.
-- Message state model, send / poll / `client_message_id`, and RTK wiring are not implemented yet — to be documented when added.
+### Layers
+
+- **UI** — screens under `src/screens/` (chat UI not wired to the API yet).
+- **Assets** — `src/assets/` (colors, fonts, icons, images).
+- **API** — `src/api/`: shared client (`baseUrl`, `baseQuery`, store) + feature modules. Messages live under `src/api/messages/` (RTK Query slice + `sendAndPoll`). Chat UI stays free of fetch/poll details.
+
+### Why RTK Query
+
+Caching, typed endpoints, and generated hooks for `GET/POST /messages` without a hand-rolled client. Send/poll orchestration that must respect `Retry-After` and idempotent `client_message_id` lives in `src/api/messages/sendAndPoll`, not in UI components.
+
+### Mock base URL
+
+| Platform | URL |
+| --- | --- |
+| iOS Simulator | `http://localhost:4000` |
+| Android Emulator | `http://10.0.2.2:4000` |
+
+Set in `src/api/baseUrl.ts` via `Platform.OS`. Emulator / cleartext details: local `docs/rn-test-mock/README.md`.
+
+### Send / poll / `client_message_id`
+
+1. `POST /messages` with a client-generated `client_message_id` and `text`.
+2. On transient failure (`500` / network), **retry the same** `client_message_id` — the mock is idempotent and will not create a duplicate user message.
+3. Response `202` includes `Retry-After` and a `reply` with `status: "generating"`.
+4. Poll `GET /messages/{reply.id}` only after waiting `Retry-After` seconds; on `429`, wait that response’s `Retry-After` and continue.
+5. Stop when `reply.status === "done"`.
+
+Helpers: `src/api/messages` — `messagesApi` + `sendAndPoll(dispatch, request)`. `POST /reset` is intentionally not exposed.
+
+### Still unfinished
+
+- Chat screen layout and message UI state model.
+- Wiring `listMessages` / `sendAndPoll` into the chat UI.
 - Known trade-off: gradient is a color token only until the chat layout lands.
 - Linked font binaries under `android/` / `ios/nanoicons-fonts/` are build products, not sources — see Design assets above.
 
 ## AI assistance
 
-Cursor agent helped export Figma assets, wire fonts/icons, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies) are intentional for the assignment.
+Cursor agent helped export Figma assets, wire fonts/icons, add the RTK Query API layer, and draft this README structure. Product decisions (CLI vs Expo, IBM Plex Mono, chat-only icon set, nano-icons over SVG components, gitignore for linked font copies, RTK Query for the mock) are intentional for the assignment.
