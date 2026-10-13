@@ -2,6 +2,10 @@
 
 React Native CLI test assignment: chat screen with Pythia (mock server, no Expo).
 
+## Demo
+
+[`media/demo.mp4`](media/demo.mp4): iPhone 17 Pro simulator against the mock in its default (error-injecting) mode, showing sending a message, Pythia thinking, and a Not sent message recovered with Retry.
+
 ## Why React Native CLI (not Expo)
 
 The brief suggests Expo, but this repo uses the official React Native CLI template. Native iOS/Android projects stay the source of truth; fonts and icons are wired through CLI tooling (`react-native.config.js`, `react-native-nano-icons`, CocoaPods) instead of Expo modules.
